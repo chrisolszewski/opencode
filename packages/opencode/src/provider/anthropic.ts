@@ -34,9 +34,68 @@ export function normalizeAnthropicMessages(messages: ModelMessage[]): ModelMessa
     return sanitized
   }
 
+  function collectWindow(startIndex: number, expectedIds: string[], expectedSet: Set<string>) {
+    const collectedResults = new Map<string, ToolResultPart>()
+    const syntheticMsgs: UserModelMessage[] = []
+
+    let j = startIndex
+
+    while (j < messages.length) {
+      const next = messages[j]
+
+      if (next.role === "tool") {
+        if (!Array.isArray(next.content)) return
+
+        for (const part of next.content) {
+          if (!isToolResultPart(part)) return
+          const sid = sanitizeId(part.toolCallId)
+          if (!expectedSet.has(sid) || collectedResults.has(sid)) return
+          collectedResults.set(sid, { ...part, toolCallId: sid })
+        }
+
+        j++
+        continue
+      }
+
+      if (isSyntheticUserMessage(next)) {
+        syntheticMsgs.push(next)
+        j++
+        continue
+      }
+
+      break
+    }
+
+    const hasAll = expectedIds.every((id) => collectedResults.has(id))
+    if (!hasAll) return
+
+    return {
+      nextIndex: j,
+      toolResults: expectedIds.map((id) => collectedResults.get(id)!),
+      syntheticMsgs,
+    }
+  }
+
   let i = 0
   while (i < messages.length) {
     const msg = messages[i]
+
+    if (msg.role === "tool") {
+      if (!Array.isArray(msg.content)) {
+        result.push(msg)
+        i++
+        continue
+      }
+
+      result.push({
+        ...msg,
+        content: msg.content.map((part) =>
+          hasToolCallId(part) ? { ...part, toolCallId: sanitizeId(part.toolCallId) } : part,
+        ),
+      })
+      i++
+      continue
+    }
 
     if (msg.role !== "assistant" || typeof msg.content === "string") {
       result.push(msg)
@@ -68,64 +127,29 @@ export function normalizeAnthropicMessages(messages: ModelMessage[]): ModelMessa
 
     const expectedIds = toolCalls.map((t) => t.toolCallId)
     const expectedSet = new Set(expectedIds)
-    const collectedResults = new Map<string, ToolResultPart>()
-    const syntheticMsgs: UserModelMessage[] = []
-
-    let j = i + 1
-    let valid = true
-
-    while (j < messages.length && valid) {
-      const next = messages[j]
-
-      if (next.role === "tool") {
-        for (const part of next.content) {
-          if (!isToolResultPart(part)) {
-            valid = false
-            break
-          }
-          const sid = sanitizeId(part.toolCallId)
-          if (!expectedSet.has(sid) || collectedResults.has(sid)) {
-            valid = false
-            break
-          }
-          collectedResults.set(sid, { ...part, toolCallId: sid })
-        }
-        if (valid) j++
-        continue
-      }
-
-      if (isSyntheticUserMessage(next)) {
-        syntheticMsgs.push(next)
-        j++
-        continue
-      }
-
-      break
+    if (expectedSet.size !== expectedIds.length) {
+      result.push({ ...msg, content })
+      i++
+      continue
     }
 
-    const hasAll = expectedIds.every((id) => collectedResults.has(id))
-
-    if (!valid || !hasAll) {
+    const window = collectWindow(i + 1, expectedIds, expectedSet)
+    if (!window) {
       result.push({ ...msg, content })
       i++
       continue
     }
 
     const mainContent = [...beforeParts, ...toolCalls]
-    if (mainContent.length > 0) {
-      result.push({ role: "assistant", content: mainContent })
-    }
-
-    const toolResults = expectedIds.map((id) => collectedResults.get(id)!)
-    result.push({ role: "tool", content: toolResults })
-
-    result.push(...syntheticMsgs)
+    result.push({ ...msg, content: mainContent })
+    result.push({ role: "tool", content: window.toolResults })
+    result.push(...window.syntheticMsgs)
 
     if (afterParts.length > 0) {
       result.push({ role: "assistant", content: afterParts })
     }
 
-    i = j
+    i = window.nextIndex
   }
 
   return result
@@ -153,8 +177,13 @@ function isThinkingPart(part: unknown): boolean {
 
 function isSyntheticUserMessage(msg: ModelMessage): msg is UserModelMessage {
   if (msg.role !== "user" || !Array.isArray(msg.content)) return false
-  const first = msg.content[0]
-  if (!isRecord(first)) return false
-  const meta = (first as any).providerMetadata?.opencode
-  return meta?.synthetic === true
+
+  const hasFilePart = msg.content.some((part) => isRecord(part) && part.type === "file")
+  if (!hasFilePart) return false
+
+  return msg.content.some((part) => {
+    if (!isRecord(part)) return false
+    const meta = (part as any).providerMetadata?.opencode
+    return meta?.synthetic === true
+  })
 }
