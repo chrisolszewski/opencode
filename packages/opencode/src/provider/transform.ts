@@ -17,6 +17,8 @@ function mimeToModality(mime: string): Modality | undefined {
 
 export namespace ProviderTransform {
   function normalizeMessages(msgs: ModelMessage[], model: Provider.Model): ModelMessage[] {
+    // Anthropic/Claude enforces strict tool-call → tool-result adjacency (API 400 otherwise).
+    // Normalize here to keep the rest of the pipeline provider-agnostic.
     if (model.api.id.includes("claude")) {
       return normalizeAnthropicMessages(msgs)
     }

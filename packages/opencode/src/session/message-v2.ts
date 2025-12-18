@@ -497,7 +497,7 @@ export namespace MessageV2 {
                     {
                       type: "text",
                       text: `Tool ${part.tool} returned an attachment:`,
-                      providerMetadata: { opencode: { synthetic: true } },
+                      providerMetadata: { opencode: { synthetic: true } }, // Allows Anthropic/Claude adjacency normalization without string matching.
                     },
                     ...part.state.attachments.map((attachment) => ({
                       type: "file" as const,
