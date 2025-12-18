@@ -489,6 +489,58 @@ describe("ProviderTransform.message - Claude tool adjacency", () => {
     expect(callId).toMatch(/^[a-zA-Z0-9_-]+$/)
     expect(callId.startsWith("opencode_")).toBe(true)
   })
+
+  test("moves interleaved assistant text after all tool results", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", toolCallId: "a", toolName: "bash", input: { command: "echo a" } },
+          { type: "text", text: "mid" },
+          { type: "tool-call", toolCallId: "b", toolName: "bash", input: { command: "echo b" } },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          { type: "tool-result", toolCallId: "b", toolName: "bash", output: { ok: "b" } },
+          { type: "tool-result", toolCallId: "a", toolName: "bash", output: { ok: "a" } },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, mockClaudeModel) as any[]
+
+    expect(result.map((m) => m.role)).toEqual(["assistant", "tool", "assistant"])
+    expect(result[0].content.map((p: any) => p.type)).toEqual(["tool-call", "tool-call"])
+    expect(result[1].content.map((p: any) => p.toolCallId)).toEqual(["a", "b"])
+    expect(result[2].content).toEqual([{ type: "text", text: "mid" }])
+  })
+
+  test("fails open on unexpected tool-result id (does not reorder tool messages)", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "a", toolName: "bash", input: { command: "echo a" } }],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "b", toolName: "bash", output: { ok: "b" } }],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "a", toolName: "bash", output: { ok: "a" } }],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, mockClaudeModel) as any[]
+
+    expect(result.map((m) => m.role)).toEqual(["assistant", "tool", "tool"])
+    expect(result[1].content).toHaveLength(1)
+    expect(result[2].content).toHaveLength(1)
+    expect(result[1].content[0].toolCallId).toBe("b")
+    expect(result[2].content[0].toolCallId).toBe("a")
+  })
 })
 
 describe("ProviderTransform.message - empty image handling", () => {
