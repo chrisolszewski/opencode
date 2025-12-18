@@ -307,6 +307,190 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
   })
 })
 
+describe("ProviderTransform.message - Claude tool adjacency", () => {
+  const mockClaudeModel = {
+    id: "anthropic/claude-3-5-sonnet",
+    providerID: "anthropic",
+    api: {
+      id: "claude-3-5-sonnet-20241022",
+      url: "https://api.anthropic.com",
+      npm: "@ai-sdk/anthropic",
+    },
+    name: "Claude 3.5 Sonnet",
+    capabilities: {
+      temperature: true,
+      reasoning: false,
+      attachment: true,
+      toolcall: true,
+      input: { text: true, audio: false, image: true, video: false, pdf: true },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: false,
+    },
+    cost: {
+      input: 0.003,
+      output: 0.015,
+      cache: { read: 0.0003, write: 0.00375 },
+    },
+    limit: {
+      context: 200000,
+      output: 8192,
+    },
+    status: "active",
+    options: {},
+    headers: {},
+  } as any
+
+  test("moves tagged synthetic user attachment message after tool results", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "a", toolName: "bash", input: { command: "echo 1" } }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Tool bash returned an attachment:",
+            providerMetadata: { opencode: { synthetic: true } },
+          },
+          {
+            type: "file",
+            url: "file://example.txt",
+            mediaType: "text/plain",
+            filename: "example.txt",
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "a", toolName: "bash", output: { ok: true } }],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, mockClaudeModel) as any[]
+
+    expect(result.map((m) => m.role)).toEqual(["assistant", "tool", "user"])
+    expect(result[0].content).toHaveLength(1)
+    expect(result[0].content[0].type).toBe("tool-call")
+    expect(result[1].content).toHaveLength(1)
+    expect(result[1].content[0].type).toBe("tool-result")
+  })
+
+  test("splits assistant trailing text after tool-call", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "prefix" },
+          { type: "tool-call", toolCallId: "a", toolName: "bash", input: { command: "echo 1" } },
+          { type: "text", text: "trailing" },
+        ],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "a", toolName: "bash", output: { ok: true } }],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, mockClaudeModel) as any[]
+
+    expect(result.map((m) => m.role)).toEqual(["assistant", "tool", "assistant"])
+    expect(result[0].content.map((p: any) => p.type)).toEqual(["text", "tool-call"])
+    expect(result[2].content.map((p: any) => p.type)).toEqual(["text"])
+    expect(result[2].content[0].text).toBe("trailing")
+  })
+
+  test("merges tool results across multiple tool messages in call order", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", toolCallId: "a", toolName: "bash", input: { command: "echo a" } },
+          { type: "tool-call", toolCallId: "b", toolName: "bash", input: { command: "echo b" } },
+        ],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "b", toolName: "bash", output: { ok: "b" } }],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "a", toolName: "bash", output: { ok: "a" } }],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, mockClaudeModel) as any[]
+
+    expect(result.map((m) => m.role)).toEqual(["assistant", "tool"])
+    expect(result[1].content.map((p: any) => p.toolCallId)).toEqual(["a", "b"])
+  })
+
+  test("does not move real user messages (fail-open)", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "a", toolName: "bash", input: { command: "echo 1" } }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "real user message" }],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "a", toolName: "bash", output: { ok: true } }],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, mockClaudeModel) as any[]
+
+    expect(result.map((m) => m.role)).toEqual(["assistant", "user", "tool"])
+  })
+
+  test("duplicate tool-call ids fail open (no duplicated tool results)", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", toolCallId: "a", toolName: "bash", input: { command: "echo 1" } },
+          { type: "tool-call", toolCallId: "a", toolName: "bash", input: { command: "echo 2" } },
+        ],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "a", toolName: "bash", output: { ok: true } }],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, mockClaudeModel) as any[]
+
+    expect(result.map((m) => m.role)).toEqual(["assistant", "tool"])
+    expect(result[1].content).toHaveLength(1)
+  })
+
+  test("sanitizes toolCallId consistently across tool-call and tool-result", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "bad:id", toolName: "bash", input: { command: "echo 1" } }],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "bad:id", toolName: "bash", output: { ok: true } }],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, mockClaudeModel) as any[]
+
+    expect(result.map((m) => m.role)).toEqual(["assistant", "tool"])
+    const callId = result[0].content[0].toolCallId
+    const resultId = result[1].content[0].toolCallId
+    expect(callId).toBe(resultId)
+    expect(callId).toMatch(/^[a-zA-Z0-9_-]+$/)
+    expect(callId.startsWith("opencode_")).toBe(true)
+  })
+})
+
 describe("ProviderTransform.message - empty image handling", () => {
   const mockModel = {
     id: "anthropic/claude-3-5-sonnet",
