@@ -497,6 +497,7 @@ export namespace MessageV2 {
                     {
                       type: "text",
                       text: `Tool ${part.tool} returned an attachment:`,
+                      providerMetadata: { opencode: { synthetic: true } },
                     },
                     ...part.state.attachments.map((attachment) => ({
                       type: "file" as const,

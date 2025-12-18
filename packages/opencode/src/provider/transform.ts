@@ -3,6 +3,7 @@ import { unique } from "remeda"
 import type { JSONSchema } from "zod/v4/core"
 import type { Provider } from "./provider"
 import type { ModelsDev } from "./models"
+import { normalizeAnthropicMessages } from "./anthropic"
 
 type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
 
@@ -17,20 +18,7 @@ function mimeToModality(mime: string): Modality | undefined {
 export namespace ProviderTransform {
   function normalizeMessages(msgs: ModelMessage[], model: Provider.Model): ModelMessage[] {
     if (model.api.id.includes("claude")) {
-      return msgs.map((msg) => {
-        if ((msg.role === "assistant" || msg.role === "tool") && Array.isArray(msg.content)) {
-          msg.content = msg.content.map((part) => {
-            if ((part.type === "tool-call" || part.type === "tool-result") && "toolCallId" in part) {
-              return {
-                ...part,
-                toolCallId: part.toolCallId.replace(/[^a-zA-Z0-9_-]/g, "_"),
-              }
-            }
-            return part
-          })
-        }
-        return msg
-      })
+      return normalizeAnthropicMessages(msgs)
     }
     if (model.providerID === "mistral" || model.api.id.toLowerCase().includes("mistral")) {
       const result: ModelMessage[] = []
