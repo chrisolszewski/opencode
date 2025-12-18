@@ -7,14 +7,14 @@ describe("ProviderTransform.options - setCacheKey", () => {
   const sessionID = "test-session-123"
 
   const mockModel = {
-    id: "anthropic/claude-3-5-sonnet",
+    id: "anthropic/claude-sonnet-4-20250514",
     providerID: "anthropic",
     api: {
-      id: "claude-3-5-sonnet-20241022",
+      id: "claude-sonnet-4-20250514",
       url: "https://api.anthropic.com",
       npm: "@ai-sdk/anthropic",
     },
-    name: "Claude 3.5 Sonnet",
+    name: "Claude Sonnet 4",
     capabilities: {
       temperature: true,
       reasoning: false,
@@ -309,14 +309,14 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
 
 describe("ProviderTransform.message - Claude tool adjacency", () => {
   const mockClaudeModel = {
-    id: "anthropic/claude-3-5-sonnet",
+    id: "anthropic/claude-sonnet-4-5",
     providerID: "anthropic",
     api: {
-      id: "claude-3-5-sonnet-20241022",
+      id: "claude-sonnet-4-5-20250929",
       url: "https://api.anthropic.com",
       npm: "@ai-sdk/anthropic",
     },
-    name: "Claude 3.5 Sonnet",
+    name: "Claude Sonnet 4.5",
     capabilities: {
       temperature: true,
       reasoning: false,
@@ -545,14 +545,14 @@ describe("ProviderTransform.message - Claude tool adjacency", () => {
 
 describe("ProviderTransform.message - empty image handling", () => {
   const mockModel = {
-    id: "anthropic/claude-3-5-sonnet",
+    id: "anthropic/claude-sonnet-4-20250514",
     providerID: "anthropic",
     api: {
-      id: "claude-3-5-sonnet-20241022",
+      id: "claude-sonnet-4-20250514",
       url: "https://api.anthropic.com",
       npm: "@ai-sdk/anthropic",
     },
-    name: "Claude 3.5 Sonnet",
+    name: "Claude Sonnet 4",
     capabilities: {
       temperature: true,
       reasoning: false,
