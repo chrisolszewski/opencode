@@ -377,6 +377,46 @@ describe("ProviderTransform.message - Claude tool adjacency", () => {
     expect(result[1].content[0].type).toBe("tool-result")
   })
 
+  test("does not modify latest assistant message with thinking blocks", () => {
+    const assistant = {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "...", signature: "sig" },
+        { type: "tool-call", toolCallId: "a", toolName: "bash", input: { command: "echo 1" } },
+      ],
+    }
+
+    const msgs = [
+      assistant,
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Tool bash returned an attachment:",
+            providerMetadata: { opencode: { synthetic: true } },
+          },
+          {
+            type: "file",
+            url: "file://example.txt",
+            mediaType: "text/plain",
+            filename: "example.txt",
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "a", toolName: "bash", output: { ok: true } }],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, mockClaudeModel) as any[]
+
+    expect(result.map((m) => m.role)).toEqual(["assistant", "tool", "user"])
+    expect(result[0]).toBe(assistant)
+    expect(result[0].content).toBe(assistant.content)
+  })
+
   test("splits assistant trailing text after tool-call", () => {
     const msgs = [
       {

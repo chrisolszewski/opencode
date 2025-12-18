@@ -76,6 +76,21 @@ export function normalizeAnthropicMessages(messages: ModelMessage[]): ModelMessa
     }
   }
 
+  let latestAssistantIndex = -1
+  for (let k = messages.length - 1; k >= 0; k--) {
+    if (messages[k].role === "assistant") {
+      latestAssistantIndex = k
+      break
+    }
+  }
+
+  const latestAssistant = latestAssistantIndex >= 0 ? messages[latestAssistantIndex] : undefined
+  const latestAssistantHasThinking =
+    !!latestAssistant &&
+    latestAssistant.role === "assistant" &&
+    Array.isArray(latestAssistant.content) &&
+    latestAssistant.content.some(isThinkingPart)
+
   let i = 0
   while (i < messages.length) {
     const msg = messages[i]
@@ -103,10 +118,42 @@ export function normalizeAnthropicMessages(messages: ModelMessage[]): ModelMessa
       continue
     }
 
-    const isLast = i === messages.length - 1
-    if (isLast && msg.content.some(isThinkingPart)) {
+    if (latestAssistantHasThinking && i === latestAssistantIndex) {
+      const firstToolIdx = msg.content.findIndex(isToolCallPart)
+      if (firstToolIdx === -1) {
+        result.push(msg)
+        i++
+        continue
+      }
+
+      const suffix = msg.content.slice(firstToolIdx)
+      const isTerminalSuffix = suffix.every(isToolCallPart)
+      if (!isTerminalSuffix) {
+        result.push(msg)
+        i++
+        continue
+      }
+
+      const toolCalls = suffix
+      const expectedIds = toolCalls.map((t) => t.toolCallId)
+      const expectedSet = new Set(expectedIds)
+      if (expectedSet.size !== expectedIds.length) {
+        result.push(msg)
+        i++
+        continue
+      }
+
+      const window = collectWindow(i + 1, expectedIds, expectedSet)
+      if (!window) {
+        result.push(msg)
+        i++
+        continue
+      }
+
       result.push(msg)
-      i++
+      result.push({ role: "tool", content: window.toolResults })
+      result.push(...window.syntheticMsgs)
+      i = window.nextIndex
       continue
     }
 
